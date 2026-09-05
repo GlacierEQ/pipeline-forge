@@ -405,22 +405,45 @@ class PipelineComposer:
             self.library.register(name, func)
 
     def compose_from_yaml(self, config_path: str) -> PipelineConfig:
-        """Load pipeline config from YAML file."""
-        import yaml
-        with open(config_path) as f:
-            raw = yaml.safe_load(f)
+        """Load pipeline config from YAML file.
+        
+        Raises:
+            FileNotFoundError: If config file doesn't exist.
+            ValueError: If YAML is invalid or missing required fields.
+        """
+        try:
+            import yaml
+        except ImportError:
+            raise ImportError("PyYAML required for compose_from_yaml")
 
-        phases = [
-            PhaseConfig(
-                name=p["name"],
+        path = Path(config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+
+        try:
+            with open(config_path) as f:
+                raw = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML in {config_path}: {e}") from e
+
+        if not isinstance(raw, dict):
+            raise ValueError(f"YAML root must be a dict, got {type(raw)}")
+
+        if "name" not in raw:
+            raise ValueError("YAML must have a 'name' field")
+
+        phases = []
+        for p in raw.get("phases", []):
+            if not isinstance(p, dict):
+                raise ValueError(f"Phase must be a dict, got {type(p)}")
+            phases.append(PhaseConfig(
+                name=p.get("name", "unnamed"),
                 block_type=p.get("type", "primitive"),
                 skip=p.get("skip", False),
                 required=p.get("required", True),
                 config=p.get("config", {}),
                 timeout=p.get("timeout", 300),
-            )
-            for p in raw.get("phases", [])
-        ]
+            ))
 
         return PipelineConfig(
             name=raw["name"],
@@ -430,7 +453,11 @@ class PipelineComposer:
         )
 
     def compose_from_template(self, template: str) -> PipelineConfig:
-        """Load a built-in template."""
+        """Load a built-in template.
+        
+        Raises:
+            ValueError: If template name is unknown.
+        """
         templates = {
             "production": [
                 PhaseConfig(name="orient"),
@@ -498,8 +525,79 @@ class PipelineComposer:
             phases=templates[template],
         )
 
+    def compose_smart(
+        self,
+        name: str,
+        description: str,
+        domain: str = "engineering",
+        complexity: int = 5,
+        quality_target: float = 9.0,
+    ) -> PipelineConfig:
+        """Compose a pipeline with smart phase selection.
+        
+        Automatically selects phases based on:
+        - Domain: determines which skill categories to include
+        - Complexity: determines how many phases to include
+        - Quality target: determines verification depth
+        
+        Returns a PipelineConfig with optimally selected phases.
+        """
+        phases: List[PhaseConfig] = []
+
+        # Always start with orient
+        phases.append(PhaseConfig(name="orient"))
+
+        # Add grill for complex concepts
+        if complexity >= 5:
+            phases.append(PhaseConfig(name="grill"))
+
+        # Add spec for all concepts
+        phases.append(PhaseConfig(name="spec"))
+
+        # Add workspace for medium+ complexity
+        if complexity >= 4:
+            phases.append(PhaseConfig(name="workspace"))
+
+        # Add implement
+        phases.append(PhaseConfig(name="implement"))
+
+        # Add verification phases based on quality target
+        if quality_target >= 8.0:
+            phases.append(PhaseConfig(name="gate-7d"))
+
+        if quality_target >= 7.0:
+            phases.append(PhaseConfig(name="security-scan"))
+
+        if quality_target >= 6.0:
+            phases.append(PhaseConfig(name="perf-profile"))
+
+        # Always verify and review
+        phases.append(PhaseConfig(name="verify"))
+        phases.append(PhaseConfig(name="review"))
+
+        # Finalize and finish
+        phases.append(PhaseConfig(name="finalize"))
+        phases.append(PhaseConfig(name="finish"))
+
+        return PipelineConfig(
+            name=name,
+            description=description,
+            phases=phases,
+            metadata={"domain": domain, "complexity": complexity, "quality_target": quality_target},
+        )
+
     def run(self, config: PipelineConfig, target: Path) -> PipelineResult:
-        """Run a pipeline against a target."""
+        """Run a pipeline against a target.
+        
+        Raises:
+            ValueError: If config is invalid.
+            RuntimeError: If a required phase fails.
+        """
+        if not config.name:
+            raise ValueError("Pipeline config must have a name")
+        if not config.phases:
+            raise ValueError("Pipeline config must have at least one phase")
+
         result = PipelineResult(
             name=config.name,
             config=config,
