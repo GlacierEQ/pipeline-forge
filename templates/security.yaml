@@ -1,0 +1,44 @@
+# Security Audit Pipeline
+name: pipeline-security
+description: >
+  Comprehensive security audit pipeline — threat modeling, static analysis,
+  dependency scanning, and remediation tracking.
+
+phases:
+  - name: orient
+    type: primitive
+    description: Inspect codebase for security context
+
+  - name: security-scan
+    type: power-up
+    config:
+      tools: [semgrep, bandit, safety]
+      severity_threshold: medium
+      auto_fix: false
+
+  - name: implement
+    type: primitive
+    description: Apply security fixes
+
+  - name: verify
+    type: primitive
+    description: Run tests to confirm fixes don't break functionality
+
+  - name: gate-7d
+    type: power-up
+    config:
+      dimensions: [tests, error-recovery, api-surface]
+      fail_fast: true
+
+  - name: finalize
+    type: primitive
+    description: Document findings and fixes
+
+  - name: finish
+    type: primitive
+    description: Generate security audit report
+
+metadata:
+  author: APEX Security Pillar
+  version: "1.0"
+  severity_levels: [critical, high, medium, low, info]

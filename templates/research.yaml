@@ -1,0 +1,56 @@
+# Deep Research Pipeline
+name: pipeline-research
+description: >
+  Multi-source research pipeline — scope, collect, synthesize, cite,
+  and produce evidence-backed reports.
+
+phases:
+  - name: orient
+    type: primitive
+    description: Understand research question and scope
+
+  - name: grill
+    type: primitive
+    config:
+      questions:
+        - question: "What is the primary research question?"
+          header: "Research Scope"
+          options:
+            - label: "Broad survey"
+              description: "Cover the full landscape"
+            - label: "Deep dive"
+              description: "Exhaustive coverage of specific area"
+
+  - name: research-deep
+    type: power-up
+    config:
+      sources: [arxiv, semantic-scholar, web, docs]
+      min_sources: 5
+      max_sources: 20
+
+  - name: spec
+    type: primitive
+    description: Create research document structure
+
+  - name: implement
+    type: primitive
+    description: Write research content with citations
+
+  - name: verify
+    type: primitive
+    config:
+      checks: [citations, facts, logic]
+
+  - name: finalize
+    type: primitive
+    description: Format and polish report
+
+  - name: finish
+    type: primitive
+    description: Deliver research report
+
+metadata:
+  author: APEX Intelligence Pillar
+  version: "1.0"
+  output_format: markdown
+  citation_style: ieee

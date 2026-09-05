@@ -1,0 +1,58 @@
+# Performance Engineering Pipeline
+name: pipeline-perf
+description: >
+  Performance optimization pipeline — profile, identify hotspots,
+  optimize, benchmark, and verify improvements.
+
+phases:
+  - name: orient
+    type: primitive
+    description: Understand performance requirements and baseline
+
+  - name: perf-profile
+    type: power-up
+    config:
+      tools: [cProfile, line_profiler, memory_profiler]
+      metrics: [latency, throughput, memory, cpu]
+
+  - name: grill
+    type: primitive
+    config:
+      questions:
+        - question: "What is the performance target?"
+          header: "Target"
+          options:
+            - label: "Latency reduction"
+              description: "Reduce p99 latency"
+            - label: "Throughput increase"
+              description: "Increase requests/sec"
+            - label: "Memory reduction"
+              description: "Reduce memory footprint"
+
+  - name: implement
+    type: primitive
+    description: Apply performance optimizations
+
+  - name: verify
+    type: primitive
+    config:
+      checks: [tests-pass, no-regression]
+
+  - name: gate-7d
+    type: power-up
+    config:
+      dimensions: [tests, telemetry, error-recovery]
+
+  - name: finalize
+    type: primitive
+    description: Document benchmarks and improvements
+
+  - name: finish
+    type: primitive
+    description: Generate performance report
+
+metadata:
+  author: APEX Performance Pillar
+  version: "1.0"
+  benchmark_iterations: 100
+  confidence_level: 0.95
