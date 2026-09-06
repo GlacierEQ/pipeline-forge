@@ -140,6 +140,118 @@ class PhaseBlockLibrary:
     def list_blocks(self) -> List[str]:
         return list(self._blocks.keys())
 
+    def discover_blocks(self, target: Path) -> List[str]:
+        """Auto-discover phase blocks from the target directory.
+        
+        Scans the target directory for:
+        - AGENTS.md (indicates APEX project)
+        - README.md (indicates documented project)
+        - Python files (indicates codebase)
+        - Test files (indicates test suite)
+        - Config files (indicates project configuration)
+        
+        Returns list of discovered block names.
+        """
+        discovered = []
+
+        # Check for APEX project markers
+        if (target / "AGENTS.md").exists():
+            discovered.append("apex-project")
+        if (target / "README.md").exists():
+            discovered.append("documented-project")
+
+        # Check for code files
+        py_files = list(target.glob("**/*.py"))
+        if py_files:
+            discovered.append("python-codebase")
+
+        js_files = list(target.glob("**/*.js"))
+        if js_files:
+            discovered.append("javascript-codebase")
+
+        ts_files = list(target.glob("**/*.ts"))
+        if ts_files:
+            discovered.append("typescript-codebase")
+
+        # Check for test files
+        test_files = list(target.glob("**/test_*.py")) + list(target.glob("**/*_test.py"))
+        if test_files:
+            discovered.append("test-suite")
+
+        # Check for config files
+        config_files = list(target.glob("**/*.toml")) + list(target.glob("**/*.yaml")) + list(target.glob("**/*.json"))
+        if config_files:
+            discovered.append("config-files")
+
+        # Check for git repo
+        if (target / ".git").exists():
+            discovered.append("git-repo")
+
+        # Check for CI/CD config
+        ci_files = list(target.glob("**/.github/**/*.yml")) + list(target.glob("**/.github/**/*.yaml"))
+        if ci_files:
+            discovered.append("ci-cd")
+
+        return discovered
+
+    def compose_from_discovery(
+        self,
+        target: Path,
+        name: str = "discovered-pipeline",
+    ) -> PipelineConfig:
+        """Compose a pipeline based on auto-discovered project structure.
+        
+        Automatically selects phases based on what's discovered in the target.
+        """
+        discovered = self.discover_blocks(target)
+
+        phases: List[PhaseConfig] = []
+
+        # Always start with orient
+        phases.append(PhaseConfig(name="orient"))
+
+        # Add grill for complex projects
+        if len(discovered) >= 3:
+            phases.append(PhaseConfig(name="grill"))
+
+        # Add spec for documented projects
+        if "documented-project" in discovered:
+            phases.append(PhaseConfig(name="spec"))
+
+        # Add workspace for codebases
+        if "python-codebase" in discovered or "javascript-codebase" in discovered:
+            phases.append(PhaseConfig(name="workspace"))
+
+        # Add implement
+        phases.append(PhaseConfig(name="implement"))
+
+        # Add test phase if test suite exists
+        if "test-suite" in discovered:
+            phases.append(PhaseConfig(name="verify"))
+
+        # Add security scan for git repos
+        if "git-repo" in discovered:
+            phases.append(PhaseConfig(name="security-scan"))
+
+        # Add CI/CD integration for projects with CI/CD
+        if "ci-cd" in discovered:
+            phases.append(PhaseConfig(name="deploy"))
+
+        # Always verify and review
+        phases.append(PhaseConfig(name="verify"))
+        phases.append(PhaseConfig(name="review"))
+
+        # Finalize and finish
+        phases.append(PhaseConfig(name="finalize"))
+        phases.append(PhaseConfig(name="finish"))
+
+        return PipelineConfig(
+            name=name,
+            description=f"Auto-discovered pipeline for {name}",
+            phases=phases,
+            metadata={"discovered": discovered, "auto_discovered": True},
+        )
+
 
 # ─── Built-in Phase Blocks ───────────────────────────────────────────────────
 
