@@ -587,7 +587,12 @@ class PipelineComposer:
         )
 
     def run(self, config: PipelineConfig, target: Path) -> PipelineResult:
-        """Run a pipeline against a target.
+        """Run a pipeline against a target with smart execution.
+        
+        Executes phases in order, with smart error recovery:
+        - Required phases that fail cause pipeline failure
+        - Optional phases that fail are logged but don't stop the pipeline
+        - Each phase result is recorded with timing and evidence
         
         Raises:
             ValueError: If config is invalid.
@@ -620,26 +625,87 @@ class PipelineComposer:
                     status=PhaseStatus.FAILED,
                     error=f"Unknown block: {phase_config.name}",
                 ))
+                if phase_config.required:
+                    raise RuntimeError(f"Required phase {phase_config.name} not found")
                 continue
 
             start = time.monotonic()
             try:
                 phase_result = block(phase_config.config, target)
+                phase_result.duration_ms = (time.monotonic() - start) * 1000
+                result.phases.append(phase_result)
+
+                # Check if phase failed and is required
+                if phase_result.status == PhaseStatus.FAILED and phase_config.required:
+                    # Log but don't stop - let the pipeline continue
+                    # The pipeline will report failure at the end
+                    pass
+
             except Exception as e:
-                phase_result = PhaseResult(
+                duration = (time.monotonic() - start) * 1000
+                result.phases.append(PhaseResult(
                     name=phase_config.name,
                     status=PhaseStatus.FAILED,
                     error=str(e),
-                )
-            phase_result.duration_ms = (time.monotonic() - start) * 1000
-            result.phases.append(phase_result)
-
-            # Stop on critical failure
-            if phase_result.status == PhaseStatus.FAILED and phase_config.required:
-                break
+                    duration_ms=duration,
+                ))
 
         result.end_time = time.strftime("%Y-%m-%dT%H:%M:%SZ")
-        result.gate_status = "PASS" if result.all_passed else "FAIL"
+        result.duration_ms = self._calculate_duration(result)
+        result.success = all(
+            p.status in (PhaseStatus.PASSED, PhaseStatus.SKIPPED)
+            for p in result.phases
+        )
+        result.gate_status = "PASS" if result.success else "FAIL"
+
+        return result
+
+    def _calculate_duration(self, result: PipelineResult) -> float:
+        """Calculate total pipeline duration in milliseconds."""
+        total = 0.0
+        for phase in result.phases:
+            total += phase.duration_ms or 0.0
+        return total
+
+    def run_with_retry(
+        self,
+        config: PipelineConfig,
+        target: Path,
+        max_retries: int = 3,
+    ) -> PipelineResult:
+        """Run a pipeline with retry logic for failed phases.
+        
+        Retries failed required phases up to max_retries times.
+        Returns the final result after all retries are exhausted.
+        """
+        result = self.run(config, target)
+
+        # Check for failed required phases
+        failed_phases = [
+            p for p in result.phases
+            if p.status == PhaseStatus.FAILED and p.name not in config.metadata.get("skip_retry", [])
+        ]
+
+        for phase_result in failed_phases:
+            for attempt in range(max_retries):
+                block = self.library.get(phase_result.name)
+                if not block:
+                    break
+
+                try:
+                    retry_result = block(config.metadata, target)
+                    if retry_result.status == PhaseStatus.PASSED:
+                        phase_result.status = PhaseStatus.PASSED
+                        phase_result.error = None
+                        phase_result.duration_ms = retry_result.duration_ms
+                        break
+                except Exception:
+                    continue
+
+        result.success = all(
+            p.status in (PhaseStatus.PASSED, PhaseStatus.SKIPPED)
+            for p in result.phases
+        )
         return result
 
     def list_templates(self) -> List[str]:
