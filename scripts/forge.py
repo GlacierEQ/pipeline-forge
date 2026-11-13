@@ -87,9 +87,13 @@ class PipelineResult:
 
     @property
     def all_passed(self) -> bool:
+        """A required phase must actually pass; optional phases may be skipped."""
+        if len(self.phases) != len(self.config.phases):
+            return False
         return all(
-            p.status in (PhaseStatus.PASSED, PhaseStatus.SKIPPED)
-            for p in self.phases
+            p.status == PhaseStatus.PASSED
+            or (not cfg.required and p.status == PhaseStatus.SKIPPED)
+            for cfg, p in zip(self.config.phases, self.phases)
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -764,10 +768,7 @@ class PipelineComposer:
 
         result.end_time = time.strftime("%Y-%m-%dT%H:%M:%SZ")
         result.duration_ms = self._calculate_duration(result)
-        result.success = all(
-            p.status in (PhaseStatus.PASSED, PhaseStatus.SKIPPED)
-            for p in result.phases
-        )
+        result.success = result.all_passed
         result.gate_status = "PASS" if result.success else "FAIL"
 
         return result
@@ -814,10 +815,7 @@ class PipelineComposer:
                 except Exception:
                     continue
 
-        result.success = all(
-            p.status in (PhaseStatus.PASSED, PhaseStatus.SKIPPED)
-            for p in result.phases
-        )
+        result.success = result.all_passed
         # Retry changes phase statuses after run() calculated its gate verdict.
         result.gate_status = "PASS" if result.success else "FAIL"
         return result
