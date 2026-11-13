@@ -68,3 +68,33 @@ def test_verify_rejects_recursive_execution(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "pytest", object())
     result = forge.block_verify({}, tmp_path)
     assert result.status == forge.PhaseStatus.FAILED
+
+
+def test_verify_does_not_mask_failed_pytest_with_fallback(monkeypatch, tmp_path):
+    import subprocess
+    (tmp_path / "verify_all.py").write_text("print('fallback')")
+    calls = []
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 1, "1 failed", "")
+    monkeypatch.delitem(sys.modules, "pytest", raising=False)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = forge.block_verify({}, tmp_path)
+    assert result.status == forge.PhaseStatus.FAILED
+    assert len(calls) == 1
+
+
+def test_verify_allows_fallback_only_when_pytest_missing(monkeypatch, tmp_path):
+    import subprocess
+    (tmp_path / "verify_all.py").write_text("print('fallback')")
+    calls = []
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(command, 1, "", "No module named pytest")
+        return subprocess.CompletedProcess(command, 0, "fallback succeeded", "")
+    monkeypatch.delitem(sys.modules, "pytest", raising=False)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = forge.block_verify({}, tmp_path)
+    assert result.status == forge.PhaseStatus.PASSED
+    assert len(calls) == 2
