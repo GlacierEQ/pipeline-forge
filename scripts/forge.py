@@ -385,7 +385,13 @@ def block_verify(config: Dict[str, Any], target: Path) -> PhaseResult:
 
     # A missing pytest installation or zero collected tests is not a pass.
     verify_path = target / "verify_all.py"
-    if verify_path.exists():
+    # Never let a fallback erase a real pytest failure or a no-tests result.
+    # The alternate verifier is only eligible when pytest itself is unavailable.
+    pytest_unavailable = result.returncode != 0 and (
+        "No module named pytest" in (result.stderr or "")
+        or "No module named pytest" in (result.stdout or "")
+    )
+    if pytest_unavailable and verify_path.exists():
         try:
             fallback = subprocess.run(
                 [sys.executable, str(verify_path)],
