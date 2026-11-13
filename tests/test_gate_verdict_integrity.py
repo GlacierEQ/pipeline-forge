@@ -37,3 +37,34 @@ def test_retry_recalculates_gate():
     result = composer.run_with_retry(cfg, Path("."), max_retries=1)
     assert result.success
     assert result.gate_status == "PASS"
+
+
+def test_verify_executes_tests_not_collection(monkeypatch, tmp_path):
+    import subprocess
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "1 passed", "")
+
+    monkeypatch.setattr(forge.subprocess if hasattr(forge, "subprocess") else subprocess, "run", fake_run)
+    monkeypatch.delitem(sys.modules, "pytest", raising=False)
+    result = forge.block_verify({}, tmp_path)
+    assert result.status == forge.PhaseStatus.PASSED
+    assert "--co" not in commands[0]
+    assert "pytest" in commands[0]
+
+
+def test_verify_rejects_no_tests(monkeypatch, tmp_path):
+    import subprocess
+
+    monkeypatch.delitem(sys.modules, "pytest", raising=False)
+    monkeypatch.setattr(subprocess, "run", lambda command, **kwargs: subprocess.CompletedProcess(command, 5, "no tests ran", ""))
+    result = forge.block_verify({}, tmp_path)
+    assert result.status == forge.PhaseStatus.FAILED
+
+
+def test_verify_rejects_recursive_execution(monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "pytest", object())
+    result = forge.block_verify({}, tmp_path)
+    assert result.status == forge.PhaseStatus.FAILED
