@@ -818,6 +818,8 @@ class PipelineComposer:
             p.status in (PhaseStatus.PASSED, PhaseStatus.SKIPPED)
             for p in result.phases
         )
+        # Retry changes phase statuses after run() calculated its gate verdict.
+        result.gate_status = "PASS" if result.success else "FAIL"
         return result
 
     def list_templates(self) -> List[str]:
