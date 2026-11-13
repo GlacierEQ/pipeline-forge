@@ -355,34 +355,56 @@ def block_gate_7d(config: Dict[str, Any], target: Path) -> PhaseResult:
 
 
 def block_verify(config: Dict[str, Any], target: Path) -> PhaseResult:
-    """Verify: run tests."""
+    """Verify by executing tests, not merely collecting them."""
     import subprocess
-    
-    # Skip if we're already inside pytest
+
+    # Prevent recursive pytest invocation; recursion is not verification.
     if "pytest" in sys.modules:
-        return PhaseResult(name="verify", status=PhaseStatus.PASSED, evidence="Skipped (inside pytest)")
+        return PhaseResult(
+            name="verify", status=PhaseStatus.FAILED,
+            evidence="Verification cannot run recursively inside pytest",
+        )
 
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--tb=short", "--co", "-q"],
-        capture_output=True, text=True, timeout=10,
-        cwd=str(target),
-    )
-    
-    # Just check that tests can be collected
-    if result.returncode == 0 or "no tests" in result.stdout.lower():
-        return PhaseResult(name="verify", status=PhaseStatus.PASSED, evidence="Tests collected")
+    timeout = int(config.get("timeout", 120))
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "--tb=short"],
+            capture_output=True, text=True, timeout=timeout, cwd=str(target),
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return PhaseResult(
+            name="verify", status=PhaseStatus.FAILED,
+            error=f"Test execution unavailable: {exc}",
+        )
 
+    if result.returncode == 0:
+        return PhaseResult(
+            name="verify", status=PhaseStatus.PASSED,
+            evidence="pytest executed successfully",
+        )
+
+    # A missing pytest installation or zero collected tests is not a pass.
     verify_path = target / "verify_all.py"
     if verify_path.exists():
-        result2 = subprocess.run(
-            [sys.executable, str(verify_path)],
-            capture_output=True, text=True, timeout=30,
-            cwd=str(target),
-        )
-        if result2.returncode == 0:
-            return PhaseResult(name="verify", status=PhaseStatus.PASSED, evidence="verify_all.py passed")
+        try:
+            fallback = subprocess.run(
+                [sys.executable, str(verify_path)],
+                capture_output=True, text=True, timeout=timeout, cwd=str(target),
+            )
+            if fallback.returncode == 0:
+                return PhaseResult(
+                    name="verify", status=PhaseStatus.PASSED,
+                    evidence="verify_all.py executed successfully (pytest failed)",
+                )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            return PhaseResult(name="verify", status=PhaseStatus.FAILED, error=str(exc))
 
-    return PhaseResult(name="verify", status=PhaseStatus.FAILED, evidence="Tests failed")
+    detail = (result.stderr or result.stdout).strip()[-500:]
+    return PhaseResult(
+        name="verify", status=PhaseStatus.FAILED,
+        evidence=f"pytest exited {result.returncode}",
+        error=detail,
+    )
 
 
 def block_review(config: Dict[str, Any], target: Path) -> PhaseResult:
